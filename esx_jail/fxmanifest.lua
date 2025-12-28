@@ -1,7 +1,7 @@
 fx_version 'cerulean'
 game 'gta5'
 
-author 'ParisRP
+author 'ParisRP'
 description 'Système de prison pour FiveM'
 version '1.0.0'
 
@@ -24,3 +24,4 @@ dependencies {
     'esx_progressbar'
 
 }
+
