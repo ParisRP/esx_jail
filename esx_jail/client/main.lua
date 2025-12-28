@@ -455,8 +455,6 @@ end, false)
 Citizen.CreateThread(function()
     Citizen.Wait(5000)
     if exports['esx_progressbar'] then
-        print('^2[esx_jail] esx_progressbar trouvé, utilisation des barres de progression avancées')
     else
-        print('^3[esx_jail] esx_progressbar non trouvé, utilisation des notifications simples')
     end
 end)
