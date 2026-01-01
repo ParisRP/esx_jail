@@ -13,6 +13,8 @@
 -------------------------------------------------------------------------------
 Voici comment ajouter les options "jail" et "unjail" dans le menu de police. Je vais vous montrer les modifications à apporter à la fonction OpenPoliceActionsMenu() :
 ----------------------------------------------------------------------------------------------------------------------------------------
+
+
 function OpenPoliceActionsMenu()
 	local elements = {
 		{unselectable = true, icon = "fas fa-police", title = TranslateCap('menu_title')},
