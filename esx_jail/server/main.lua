@@ -30,6 +30,8 @@ end
 
 -- Fonction pour vérifier les permissions
 local function CheckPermission(xPlayer)
+    if not xPlayer then return false end
+
     -- Vérifier les groupes ESX
     for _, group in pairs(Config.AllowedGroups) do
         if xPlayer.getGroup() == group then
@@ -40,7 +42,7 @@ local function CheckPermission(xPlayer)
     -- Vérifier les grades de police
     if Config.AllowedPoliceGrades then
         for _, grade in pairs(Config.AllowedPoliceGrades) do
-            if xPlayer.job.name == Config.JobName and xPlayer.job.grade_name == grade then
+            if xPlayer.job and xPlayer.job.name == Config.JobName and xPlayer.job.grade_name == grade then
                 return true
             end
         end
@@ -108,6 +110,11 @@ local function JailPlayer(source, identifier, time, reason, jailedBy)
         time = Config.Advanced.maxSentence
     end
 
+    -- Limiter le temps minimum
+    if time < Config.Advanced.minSentence then
+        time = Config.Advanced.minSentence
+    end
+
     -- Sauvegarder dans la base de données
     MySQL.Async.execute('INSERT INTO jail (identifier, time, reason, jailed_by) VALUES (@identifier, @time, @reason, @jailed_by) ON DUPLICATE KEY UPDATE time = @time, reason = @reason, jailed_by = @jailed_by', {
         ['@identifier'] = identifier,
@@ -120,11 +127,18 @@ local function JailPlayer(source, identifier, time, reason, jailedBy)
     jailedPlayers[identifier] = {
         time = time,
         reason = reason,
-        jailed_by = jailedBy
+        jailed_by = jailedBy,
+        workCount = 0
     }
 
-    -- Notifier le joueur
-    TriggerClientEvent('esx_jail:jailPlayer', source, time)
+    -- Notifier le joueur s'il est en ligne
+    for _, playerId in ipairs(GetPlayers()) do
+        local xPlayer = ESX.GetPlayerFromId(playerId)
+        if xPlayer and xPlayer.identifier == identifier then
+            TriggerClientEvent('esx_jail:jailPlayer', playerId, time)
+            break
+        end
+    end
 
     -- Logs
     SendDiscordLog(source, identifier, time, reason, jailedBy, 'jail')
@@ -164,7 +178,7 @@ MySQL.ready(function()
             `jailed_by` VARCHAR(255) DEFAULT NULL,
             `jailed_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
-            KEY `identifier` (`identifier`)
+            UNIQUE KEY `identifier` (`identifier`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
     ]], {}, function(rowsChanged)
         -- Charger les joueurs en prison après création de la table
@@ -175,6 +189,10 @@ end)
 -- Commandes
 RegisterCommand(Config.Commands.jail, function(source, args, rawCommand)
     local xPlayer = ESX.GetPlayerFromId(source)
+
+    if not xPlayer then
+        return
+    end
 
     -- Vérifier les permissions
     if not CheckPermission(xPlayer) then
@@ -210,6 +228,10 @@ end)
 RegisterCommand(Config.Commands.unjail, function(source, args, rawCommand)
     local xPlayer = ESX.GetPlayerFromId(source)
 
+    if not xPlayer then
+        return
+    end
+
     if not CheckPermission(xPlayer) then
         TriggerClientEvent('esx:showNotification', source, '~r~Vous n\'avez pas la permission !')
         return
@@ -241,6 +263,10 @@ end)
 
 RegisterCommand(Config.Commands.checkjail, function(source, args, rawCommand)
     local xPlayer = ESX.GetPlayerFromId(source)
+
+    if not xPlayer then
+        return
+    end
 
     if not CheckPermission(xPlayer) then
         TriggerClientEvent('esx:showNotification', source, '~r~Vous n\'avez pas la permission !')
@@ -283,6 +309,10 @@ end)
 
 RegisterCommand(Config.Commands.setjailtime, function(source, args, rawCommand)
     local xPlayer = ESX.GetPlayerFromId(source)
+
+    if not xPlayer then
+        return
+    end
 
     if not CheckPermission(xPlayer) then
         TriggerClientEvent('esx:showNotification', source, '~r~Vous n\'avez pas la permission !')
@@ -336,6 +366,12 @@ end)
 -- Vérifier le statut de prison au démarrage d'un joueur
 ESX.RegisterServerCallback('esx_jail:checkJailStatus', function(source, cb)
     local xPlayer = ESX.GetPlayerFromId(source)
+
+    if not xPlayer then
+        cb(false, 0)
+        return
+    end
+
     local jailData = jailedPlayers[xPlayer.identifier]
 
     if jailData then
@@ -351,7 +387,11 @@ AddEventHandler('esx_jail:completeWork', function()
     local src = source
     local xPlayer = ESX.GetPlayerFromId(src)
 
-    if not xPlayer or not jailedPlayers[xPlayer.identifier] then
+    if not xPlayer then
+        return
+    end
+
+    if not jailedPlayers[xPlayer.identifier] then
         return
     end
 
@@ -386,7 +426,7 @@ AddEventHandler('esx_jail:completeWork', function()
 
     -- Notifier le joueur
     TriggerClientEvent('esx_jail:updateJailTime', src, jailData.time)
-    TriggerClientEvent('esx:showNotification', src, string.format(Config.Notifications.workCompleted, money, reduction / 60))
+    TriggerClientEvent('esx:showNotification', src, string.format('Travail terminé ! ~g~+$%s~s~, ~y~-%s minutes~s~ de prison', money, reduction / 60))
 
     -- Logs
     SendDiscordLog(src, xPlayer.identifier, reduction, nil, nil, 'work')
@@ -398,7 +438,11 @@ AddEventHandler('esx_jail:buyItem', function(itemName)
     local src = source
     local xPlayer = ESX.GetPlayerFromId(src)
 
-    if not xPlayer or not jailedPlayers[xPlayer.identifier] then
+    if not xPlayer then
+        return
+    end
+
+    if not jailedPlayers[xPlayer.identifier] then
         return
     end
 
@@ -420,7 +464,7 @@ AddEventHandler('esx_jail:buyItem', function(itemName)
         if xPlayer.getMoney() >= item.price then
             xPlayer.removeMoney(item.price)
             xPlayer.addInventoryItem(item.name, 1)
-            TriggerClientEvent('esx:showNotification', src, string.format(Config.Notifications.canteenPurchase, item.label, item.price))
+            TriggerClientEvent('esx:showNotification', src, string.format('Vous avez acheté ~y~%s~s~ pour ~g~$%s', item.label, item.price))
         else
             TriggerClientEvent('esx:showNotification', src, '~r~Pas assez d\'argent !')
         end
@@ -428,7 +472,7 @@ AddEventHandler('esx_jail:buyItem', function(itemName)
         if xPlayer.getAccount('bank').money >= item.price then
             xPlayer.removeAccountMoney('bank', item.price)
             xPlayer.addInventoryItem(item.name, 1)
-            TriggerClientEvent('esx:showNotification', src, string.format(Config.Notifications.canteenPurchase, item.label, item.price))
+            TriggerClientEvent('esx:showNotification', src, string.format('Vous avez acheté ~y~%s~s~ pour ~g~$%s', item.label, item.price))
         else
             TriggerClientEvent('esx:showNotification', src, '~r~Pas assez d\'argent en banque !')
         end
@@ -493,6 +537,48 @@ Citizen.CreateThread(function()
     end
 end)
 
+-- Événement pour une tentative d'évasion
+RegisterServerEvent('esx_jail:escapeAttempt')
+AddEventHandler('esx_jail:escapeAttempt', function()
+    local src = source
+    local xPlayer = ESX.GetPlayerFromId(src)
+
+    if not xPlayer then
+        return
+    end
+
+    if not jailedPlayers[xPlayer.identifier] then
+        return
+    end
+
+    -- Ajouter du temps de prison pour tentative d'évasion
+    local jailData = jailedPlayers[xPlayer.identifier]
+    jailData.time = jailData.time + (60 * 30) -- 30 minutes supplémentaires
+
+    -- Mettre à jour la base de données
+    MySQL.Async.execute('UPDATE jail SET time = @time WHERE identifier = @identifier', {
+        ['@identifier'] = xPlayer.identifier,
+        ['@time'] = jailData.time
+    })
+
+    -- Notifier le joueur
+    TriggerClientEvent('esx_jail:updateJailTime', src, jailData.time)
+    TriggerClientEvent('esx:showNotification', src, '~r~Tentative d\'évasion ! +30 minutes de prison')
+
+    -- Logs
+    SendDiscordLog(src, xPlayer.identifier, nil, nil, nil, 'escape')
+
+    -- Alerter la police si configuré
+    if Config.Escape.alertPolice then
+        for _, playerId in ipairs(GetPlayers()) do
+            local targetXPlayer = ESX.GetPlayerFromId(playerId)
+            if targetXPlayer and targetXPlayer.job and targetXPlayer.job.name == Config.JobName then
+                TriggerClientEvent('esx:showNotification', playerId, '~r~Alerte: Tentative d\'évasion à la prison !')
+            end
+        end
+    end
+end)
+
 -- Exports pour d'autres ressources
 exports('JailPlayer', function(source, time, reason)
     local xPlayer = ESX.GetPlayerFromId(source)
@@ -532,40 +618,16 @@ exports('GetJailedPlayers', function()
     return jailedPlayers
 end)
 
--- Événement pour une tentative d'évasion
-RegisterServerEvent('esx_jail:escapeAttempt')
-AddEventHandler('esx_jail:escapeAttempt', function()
-    local src = source
-    local xPlayer = ESX.GetPlayerFromId(src)
+-- Test command for debugging
+RegisterCommand('testjail', function(source, args)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
 
-    if not xPlayer or not jailedPlayers[xPlayer.identifier] then
-        return
+    local time = 300 -- 5 minutes
+    if #args > 0 then
+        time = tonumber(args[1]) or time
     end
 
-    -- Ajouter du temps de prison pour tentative d'évasion
-    local jailData = jailedPlayers[xPlayer.identifier]
-    jailData.time = jailData.time + (60 * 30) -- 30 minutes supplémentaires
-
-    -- Mettre à jour la base de données
-    MySQL.Async.execute('UPDATE jail SET time = @time WHERE identifier = @identifier', {
-        ['@identifier'] = xPlayer.identifier,
-        ['@time'] = jailData.time
-    })
-
-    -- Notifier le joueur
-    TriggerClientEvent('esx_jail:updateJailTime', src, jailData.time)
-    TriggerClientEvent('esx:showNotification', src, '~r~Tentative d\'évasion ! +30 minutes de prison')
-
-    -- Logs
-    SendDiscordLog(src, xPlayer.identifier, nil, nil, nil, 'escape')
-
-    -- Alerter la police si configuré
-    if Config.Escape.alertPolice then
-        for _, playerId in ipairs(GetPlayers()) do
-            local targetXPlayer = ESX.GetPlayerFromId(playerId)
-            if targetXPlayer and targetXPlayer.job.name == Config.JobName then
-                TriggerClientEvent('esx:showNotification', playerId, '~r~Alerte: Tentative d\'évasion à la prison !')
-            end
-        end
-    end
-end)
+    JailPlayer(source, xPlayer.identifier, time, "Test", "System")
+    TriggerClientEvent('esx:showNotification', source, '~g~Test d\'emprisonnement activé !')
+end, false)
