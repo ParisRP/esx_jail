@@ -187,7 +187,7 @@ function OpenPoliceActionsMenu()
 			end)
 		end
 	end)
-end
+	end
 ----------------------------------------------------------------------------------------------------------------------------------------
 
 Maintenant, ajoutez ces deux nouvelles fonctions pour gérer les menus de jail et unjail :
